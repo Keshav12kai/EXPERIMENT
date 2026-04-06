@@ -50,6 +50,10 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import statistics
 
+# MNQ contract specs
+MNQ_POINT_VALUE = 2  # $2 per point per contract
+MNQ_TICK_SIZE = 0.25  # Minimum price increment
+
 
 def load_data(filepath, symbol="MNQZ5"):
     """Load 1-minute OHLCV data from CSV file."""
@@ -246,7 +250,7 @@ def _make_trade(position, candle, exit_price, pnl_pts, qty, exit_idx):
         "entry_price": position["entry_price"],
         "exit_price": exit_price,
         "pnl_pts": pnl_pts,
-        "pnl_usd": pnl_pts * 2 * qty,
+        "pnl_usd": pnl_pts * MNQ_POINT_VALUE * qty,
         "result": "WIN" if pnl_pts > 0 else "LOSS",
         "bars_held": exit_idx - position["entry_idx"],
     }
@@ -302,7 +306,7 @@ def print_results(trades, qty):
     print(f"Losers:           {len(losses)}")
     print(f"Win Rate:         {win_rate:.1f}%")
     print(f"Total PnL:        {total_pnl:.1f} pts = ${total_pnl_usd:,.0f}")
-    print(f"Avg PnL/trade:    {avg_pnl:.2f} pts = ${avg_pnl*2*qty:,.0f}")
+    print(f"Avg PnL/trade:    {avg_pnl:.2f} pts = ${avg_pnl*MNQ_POINT_VALUE*qty:,.0f}")
     if wins:
         print(
             f"Avg Winner:       {sum(t['pnl_pts'] for t in wins)/len(wins):.2f} pts"
@@ -313,7 +317,7 @@ def print_results(trades, qty):
         )
     print(f"Profit Factor:    {profit_factor:.2f}")
     print(f"Sharpe Ratio:     {sharpe:.2f}")
-    print(f"Max Drawdown:     {max_dd:.1f} pts = ${max_dd*2*qty:,.0f}")
+    print(f"Max Drawdown:     {max_dd:.1f} pts = ${max_dd*MNQ_POINT_VALUE*qty:,.0f}")
     if max_dd > 0:
         print(f"Recovery Factor:  {total_pnl/max_dd:.2f}")
     print(
@@ -354,7 +358,7 @@ SESSION_PRESETS = {
         "end_hour_utc": 18,
     },
     "rth_full": {
-        "name": "RTH Full (9:30AM-4PM ET)",
+        "name": "RTH Full (9AM-4PM ET, starts 30min before open)",
         "start_hour_utc": 14,
         "end_hour_utc": 21,
     },
@@ -450,6 +454,9 @@ def main():
     # Load data
     print(f"Loading data from: {args.data}")
     candles = load_data(args.data, args.symbol)
+    if not candles:
+        print("ERROR: No candles loaded. Check the data file and symbol filter.")
+        sys.exit(1)
     print(f"Loaded {len(candles)} candles from {candles[0]['dt']} to {candles[-1]['dt']}")
 
     # Print config
@@ -457,12 +464,12 @@ def main():
     print("Configuration:")
     print(f"  Session:       {session_name}")
     print(f"  EMA Period:    {args.ema}")
-    print(f"  Take Profit:   {args.tp} pts (${args.tp * 2 * args.qty:.0f})")
-    print(f"  Stop Loss:     {args.sl} pts (${args.sl * 2 * args.qty:.0f})")
+    print(f"  Take Profit:   {args.tp} pts (${args.tp * MNQ_POINT_VALUE * args.qty:.0f})")
+    print(f"  Stop Loss:     {args.sl} pts (${args.sl * MNQ_POINT_VALUE * args.qty:.0f})")
     print(f"  Contracts:     {args.qty}")
     print(f"  Min Volume:    {args.min_vol}")
     print(f"  Cooldown:      {args.cooldown} bars")
-    print(f"  Max Trades/Day:{args.max_trades}")
+    print(f"  Max Trades/Day: {args.max_trades}")
 
     # Run backtest
     trades = backtest(
