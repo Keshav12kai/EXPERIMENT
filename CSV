@@ -5,7 +5,7 @@ Trade #	Type	Date/Time	Signal	Price USD	Qty	Position Value
 2	Entry short	2025-11-11 18:10:05	Short	25651.25	39	1000399.15.00																			
 3	Exit short	2025-11-11 18:18:00	Short Exit	25639	39	999921.0																			
 3	Entry short	2025-11-11 18:17:30	Short	25644.5	39	1000135.5																			
-4	Exit long	2025-11-11 18:43:15	Long Exit	25645.5	39	1000954.5 *																
+4	Exit long	2025-11-11 18:43:15	Long Exit	25665.5	39	1000954.5 *																
 4	Entry long	2025-11-11 18:42:10	Long	25662	39	1000818																			
 5	Exit long	2025-11-11 18:51:30	Long Exit	25663.5	39	1000876.5																			
 5	Entry long	2025-11-11 18:49:10	Long	25669.25.00	39	1001101.15.00																			
