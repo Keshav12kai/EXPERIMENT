@@ -114,7 +114,8 @@ def run_inside_bar_backtest(candles, tp=8, sl=10, sh_utc=15, eh_utc=16,
             slip = SLIPPAGE_PTS if pending["dir"] == "LONG" else -SLIPPAGE_PTS
             fp = c["o"] + slip
             pos = {"dir": pending["dir"], "p": fp, "i": i, "t": c["dt"],
-                   "sig_t": pending["sig_t"], "container_h": pending["container_h"],
+                   "sig_t": pending["sig_t"], "sig_close": pending["sig_close"],
+                   "container_h": pending["container_h"],
                    "container_l": pending["container_l"]}
             pending = None
 
@@ -165,6 +166,7 @@ def run_inside_bar_backtest(candles, tp=8, sl=10, sh_utc=15, eh_utc=16,
                     "exit_t_utc": c["dt"],
                     "exit_t_et": utc_to_et(c["dt"]),
                     "dir": dr,
+                    "sig_close": pos["sig_close"],
                     "ep": ep,
                     "xp": xp,
                     "tp_lvl": tp_lvl,
@@ -199,10 +201,12 @@ def run_inside_bar_backtest(candles, tp=8, sl=10, sh_utc=15, eh_utc=16,
                 if c["c"] > prev2["h"]:
                     dcnt[d] += 1
                     pending = {"dir": "LONG", "sig_t": c["dt"],
+                               "sig_close": c["c"],
                                "container_h": prev2["h"], "container_l": prev2["l"]}
                 elif c["c"] < prev2["l"]:
                     dcnt[d] += 1
                     pending = {"dir": "SHORT", "sig_t": c["dt"],
+                               "sig_close": c["c"],
                                "container_h": prev2["h"], "container_l": prev2["l"]}
 
     return trades
@@ -238,8 +242,7 @@ def main():
     for idx, t in enumerate(trades, 1):
         print(f"  {idx:>3}  {t['sig_t_et'].strftime('%m/%d %H:%M'):<16} "
               f"{t['dir']:<6} "
-              f"{t['ep'] + (t['pnl_pts'] + SLIPPAGE_PTS + (8 if t['reason']=='TP' else -10 if t['reason']=='SL' else 0)) * 0:>10.2f}"
-              f"{'':>0}"  # placeholder
+              f"{t['sig_close']:>10.2f}"
               f"{t['container_h']:>10.2f} "
               f"{t['container_l']:>10.2f} "
               f"{t['ep']:>10.2f} {t['xp']:>10.2f} "
