@@ -1,108 +1,128 @@
-# MNQ Slope Scalper — TradingView Discrepancy Diagnosis
+# MNQ Strategy Analysis — CORRECTED (Starting Over)
 
-## 🔴 Root Cause: The Python Backtest Was Overly Optimistic
+## What Went Wrong Before
 
-The strategy **appears** to be extremely profitable (82% win rate, $80k+) in the Python
-backtest, but **loses money** (-$32k) when executed with realistic fills on TradingView.
+The previous analysis made three critical errors:
 
-This is **not a TradingView bug** — TradingView is giving you the correct, realistic results.
+### Error 1: Wrong Signal Identification
+- **Claimed:** EMA(3) slope direction (rising→LONG, falling→SHORT)
+- **Reality:** EMA(3) slope only matched 80% of actual trades (12/15)
+- **Best match found:** `low_break_prev` matched 100% (15/15), but this turned out to be coincidental overfitting to 15 trades
 
----
+### Error 2: Wrong TP/SL Assumption  
+- **Claimed:** Fixed TP=4pts, SL=5pts
+- **Reality:** Actual trade PnL ranged from +3.50 to +8.25 (wins) and -2.25 to -7.00 (losses) — NO fixed TP/SL was used
 
-## The 3 Critical Flaws in the Python Backtest
+### Error 3: Wrong Session
+- **Claimed:** Best session 10-11AM ET (RTH morning)
+- **Reality:** All 15 trades were in the Globex evening session (6-9PM ET)
 
-### 1. Entry Fill Price (BIGGEST ISSUE)
-| | Python Backtest | TradingView / Real Trading |
-|---|---|---|
-| **Entry fill** | Bar **close** (signal bar) | Next bar **open** |
-| **Impact** | Gets "perfect" fills at signal price | Gets whatever the market opens at |
-| **Slippage** | 0 points | 0.5 – 2+ points typical |
-
-For a scalper targeting only 4 points of profit, even 1 point of entry slippage
-destroys 25% of the profit on every trade.
-
-### 2. Zero Commission & Slippage in Python
-| Cost | Per Side | Per Round Trip (39 contracts) |
-|---|---|---|
-| Commission ($0.62/ct) | $24.18 | $48.36 |
-| Slippage (1 tick) | $19.50 | $39.00 |
-| **Total** | **$43.68** | **$87.36** |
-
-| Scenario | Gross P&L | Net P&L (after costs) |
-|---|---|---|
-| 4-pt Winner | +$312.00 | +$224.64 |
-| 5-pt Loser  | -$390.00 | -$477.36 |
-
-**Breakeven win rate changes from 56% to 68%** when you include costs.
-
-### 3. Same-Bar TP/SL Bias
-The Python backtest always checks Take Profit **before** Stop Loss on each bar.
-When both could be hit on the same bar, TP always wins. This creates a systematic
-positive bias that inflates win rates by 5-10%.
-
-TradingView correctly uses OHLC-path simulation to determine which was hit first.
+### Root Cause
+**15 trades from a single session is insufficient to reverse-engineer ANY strategy.** Any pattern found on 15 data points is almost certainly overfitting.
 
 ---
 
-## Comparison Results
+## Correct Methodology
 
+### Step 1: Analyzed ALL 15 actual trades
+Parsed trade log, matched to 1-min candle data, tested every possible indicator.
+
+### Step 2: Systematic Strategy Scan
+Tested **1,267 strategy × TP/SL × session combinations** with realistic execution:
+- 32+ strategies (EMA slopes, crossovers, momentum, RSI, breakouts, inside bars, ORB, mean reversion, volume)
+- 7 TP/SL ratios (4/5, 5/5, 5/6, 6/6, 6/8, 8/10, 10/12)
+- 4 sessions (RTH Open, RTH Morning, RTH Full, Globex Evening)
+
+### Step 3: Realistic Execution Model
+Every backtest includes:
+- **Commission:** $0.62 per contract per side ($48.36 round-trip at 39 contracts)
+- **Slippage:** 1 tick ($0.25) per fill, both entry and exit
+- **Entry:** Next bar's OPEN (not bar close — can't trade the close you just calculated on)
+- **OHLC-path TP/SL:** When both TP and SL hit same bar, use bar direction to determine fill order
+- **Break-even requirement:** ~1.12 points per trade just to cover costs
+
+---
+
+## Results
+
+### Out of 1,267 combinations: Only 10 are profitable
+
+| Rank | Strategy | Session | TP/SL | Trades | WR% | PnL $ | PF |
+|------|----------|---------|-------|--------|-----|-------|----|
+| 1 | 3-Bar Breakout | RTH Open (9-10AM) | 8/10 | 352 | 61.4% | +$6,007 | 1.05 |
+| 2 | 3-Bar Breakout | RTH Full (9AM-4PM) | 8/10 | 576 | 61.1% | +$5,841 | 1.03 |
+| 3 | Inside Bar Breakout | RTH Morning (10-11AM) | 8/10 | 73 | 64.4% | +$4,094 | 1.19 |
+| 4 | EMA(21) Bounce | RTH Morning (10-11AM) | 8/10 | 38 | 65.8% | +$3,252 | 1.31 |
+| 5 | EMA(9) Bounce | RTH Morning (10-11AM) | 6/6 | 73 | 58.9% | +$1,540 | 1.10 |
+
+### Old EMA(3) Slope Strategy
+- **TP=4/SL=5 with realistic execution: -$47,798** (massive loss)
+- Profit Factor: 0.61 (losing 39 cents for every dollar risked)
+
+---
+
+## Recommended Strategy: Inside Bar Breakout
+
+**Why this one (not #1)?**
+- Better PF (1.19 vs 1.05) — more robust edge
+- Better Sharpe (0.71 vs 0.47)
+- 59% profitable days vs 50%
+- Simpler, well-known pattern with logical basis
+
+### Signal Logic
 ```
-Metric                  IDEAL (Python)    REALISTIC (TV)    Change
-─────────────────────────────────────────────────────────────────
-Trades                  426               427               +1
-Win Rate                82.4%             51.8%             -30.6%
-Total PnL               +$80,652          -$32,525          -$113,177
-Profit Factor           3.79              0.62              -3.17
-Sharpe Ratio            14.67             -4.75             -19.42
-Max Drawdown            $1,326            $34,196           +$32,870
-Profitable Days         100%              17%               -83%
+INSIDE BAR: bar whose range fits entirely within previous bar's range
+  - high[1] <= high[2] AND low[1] >= low[2]
+
+LONG:  After inside bar, current bar closes ABOVE the containing bar's high
+SHORT: After inside bar, current bar closes BELOW the containing bar's low
 ```
 
----
+### Parameters
+- **Timeframe:** 1-minute
+- **TP:** 8 points
+- **SL:** 10 points  
+- **Session:** 10:00-11:00 AM ET (RTH Morning)
+- **Minimum volume:** 50 contracts
+- **Contracts:** 39
 
-## What This Means
-
-The EMA(3) slope signal on a 1-minute chart **does not have enough predictive
-power** to overcome real-world execution costs. The apparent 82% win rate was
-entirely an artifact of:
-
-1. Entering at the exact close price (impossible in reality)
-2. Ignoring $87/trade in execution costs
-3. Biased TP/SL resolution
-
----
-
-## Files Created
-
-| File | Purpose |
-|---|---|
-| `strategy_realistic.py` | Fixed Python backtest with `--mode compare` to see both |
-| `strategy_v2.pine` | Fixed Pine Script with `process_orders_on_close = true` |
-| `strategy_ninjatrader.cs` | NinjaTrader 8 port for cross-platform validation |
+### Performance (40 days)
+- 73 trades (47W / 26L)
+- 64.4% win rate
+- **Profit Factor: 1.19**
+- Total: +$4,094
+- Max Drawdown: $6,655
+- Sharpe: 0.71
 
 ---
 
-## What To Do Next
+## Critical Warning
 
-### Option A: Accept the realistic results and improve the signal
-- The EMA(3) slope alone is too weak — consider adding filters:
-  - Trend filter (e.g., higher timeframe EMA direction)
-  - Volatility filter (ATR-based, avoid low/high volatility)
-  - Order flow / volume delta confirmation
-  - Time-of-day filter (narrow to the absolute best 15-min window)
+⚠ **ALL profitable strategies found have marginal edges (PF 1.05-1.31).**
 
-### Option B: Adjust the risk/reward
-- Increase TP to 6-8 points (needs higher win rate or bigger moves)
-- Tighten SL to 3 points (but may get stopped out more)
-- Reduce contracts to lower commission impact
+This means:
+1. A slight increase in slippage, spread widening, or market condition change can make them lose money
+2. The sample size (40 days) is not large enough for high statistical confidence
+3. Paper trade extensively before risking real money
+4. Consider **reducing position size** to 5-10 contracts to lower per-trade cost
 
-### Option C: Use the `strategy_v2.pine` with `process_orders_on_close = true`
-- This makes TradingView fill entries at bar close (like the Python backtest)
-- Results will match Python more closely, **but this is NOT realistic for live trading**
-- Only use this for validation, never for live performance estimation
+### Cost Impact Analysis
+| Contracts | Round-trip Cost | Break-even Points |
+|-----------|----------------|-------------------|
+| 1 | $1.24 | 0.87 pts |
+| 5 | $6.20 | 0.81 pts |
+| 10 | $12.40 | 0.81 pts |
+| 39 | $48.36 | 1.12 pts |
 
-### Option D: Validate on NinjaTrader
-- Import `strategy_ninjatrader.cs` into NinjaTrader 8
-- Run on MNQ 1-minute chart with the same date range
-- Compare results against both TradingView and the realistic Python backtest
-- NinjaTrader's backtester has configurable fill models for more accurate testing
+---
+
+## Files
+
+| File | Description |
+|------|-------------|
+| `backtest_correct.py` | Correct backtest engine with realistic execution — run this |
+| `strategy_correct.pine` | Pine Script v6 for TradingView |
+| `strategy_scanner.py` | Full strategy scanner (1,267 combinations) |
+| `strategy.py` | ❌ OLD — incorrect strategy, unrealistic execution |
+| `strategy.pine` | ❌ OLD — incorrect Pine Script |
+| `strategy_realistic.py` | ❌ OLD — based on wrong signal |
