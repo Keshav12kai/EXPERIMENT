@@ -1,0 +1,219 @@
+// ============================================================================
+// CONFLUENCE MEAN-REVERSION STRATEGY — TradingView Pine Script v6
+// ============================================================================
+//
+// RULES:
+// - Session: RTH only (9:30 AM – 4:00 PM ET), skip first 15 min
+// - VWAP + StdDev bands (session reset)
+// - RSI(14), Volume vs 20-bar SMA
+// - Price action: body/wick analysis
+// - Opening Range: first 15 min high/low
+// - Session position: where price is within day's range
+//
+// LONG when 4+ conditions true:
+//   1. Price < VWAP - 1.5σ
+//   2. RSI(14) < 35
+//   3. Volume > 1.5× 20-bar avg
+//   4. Bullish bar with lower wick > 70% of body
+//   5. Price near OR low (within 0.3 ATR)
+//   6. Price in lower 30% of session range
+//
+// SHORT when 4+ (mirror conditions)
+//
+// TP = 0.8 × ATR(14), SL = 1.2 × ATR(14)
+// ============================================================================
+
+//@version=6
+strategy("Confluence Mean Reversion", overlay=true,
+     default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.cash_per_contract, 
+     commission_value=0.62,
+     slippage=1,
+     process_orders_on_close=false,
+     calc_on_every_tick=false,
+     initial_capital=50000)
+
+// ── INPUTS ──
+minScore    = input.int(4, "Min Confluence Score", minval=2, maxval=6)
+tpMult      = input.float(0.8, "TP (ATR multiple)", step=0.1)
+slMult      = input.float(1.2, "SL (ATR multiple)", step=0.1)
+atrPeriod   = input.int(14, "ATR Period")
+rsiPeriod   = input.int(14, "RSI Period")
+volAvgPeriod= input.int(20, "Volume Avg Period")
+orMinutes   = input.int(15, "Opening Range Minutes")
+cooldownBars= input.int(2, "Cooldown Bars After Trade")
+maxHoldBars = input.int(60, "Max Hold Bars")
+
+// ── SESSION FILTER ──
+// We use session info to identify RTH
+isRTH = not na(time(timeframe.period, "0930-1600:23456", "America/New_York"))
+
+// ── INDICATORS ──
+atrVal      = ta.atr(atrPeriod)
+rsiVal      = ta.rsi(close, rsiPeriod)
+volAvg      = ta.sma(volume, volAvgPeriod)
+
+// ── SESSION VWAP ──
+// Pine's built-in ta.vwap is session-based
+vwapVal     = ta.vwap
+// We need std dev of typical price from VWAP
+// Use cumulative calculation
+var float cumPV  = 0.0
+var float cumV   = 0.0
+var float cumPV2 = 0.0
+
+isNewSession = ta.change(time("D")) != 0
+
+if isNewSession
+    cumPV  := 0.0
+    cumV   := 0.0
+    cumPV2 := 0.0
+
+tp_price = (high + low + close) / 3.0
+cumPV  += tp_price * volume
+cumV   += volume
+cumPV2 += tp_price * tp_price * volume
+
+vwapCalc = cumV > 0 ? cumPV / cumV : close
+vwapVar  = cumV > 0 ? math.max(0, cumPV2 / cumV - vwapCalc * vwapCalc) : 0.0
+vwapStd  = math.sqrt(vwapVar)
+
+// ── OPENING RANGE ──
+var float orHigh = na
+var float orLow  = na
+var bool  orDone = false
+var int   sessionBarCount = 0
+
+if isNewSession
+    orHigh := high
+    orLow  := low
+    orDone := false
+    sessionBarCount := 0
+
+sessionBarCount += isRTH ? 1 : 0
+
+if isRTH and not orDone
+    if sessionBarCount <= orMinutes
+        orHigh := math.max(orHigh, high)
+        orLow  := math.min(orLow, low)
+    else
+        orDone := true
+
+orValid = orDone and not na(orHigh) and not na(orLow)
+
+// ── SESSION HIGH/LOW ──
+var float sessHigh = na
+var float sessLow  = na
+
+if isNewSession
+    sessHigh := high
+    sessLow  := low
+
+if isRTH
+    sessHigh := math.max(nz(sessHigh, high), high)
+    sessLow  := math.min(nz(sessLow, low), low)
+
+sessRange = nz(sessHigh, high) - nz(sessLow, low)
+sessPct   = sessRange > 0 ? (close - nz(sessLow, low)) / sessRange : 0.5
+
+// ── CONFLUENCE SCORING ──
+body       = close - open
+barRange   = high - low
+absBody    = math.abs(body)
+lowerWick  = math.min(open, close) - low
+upperWick  = high - math.max(open, close)
+
+// LONG conditions
+longC1 = vwapStd > 0 and (close - vwapCalc) / vwapStd < -1.5  // Below VWAP - 1.5σ
+longC2 = rsiVal < 35                                            // RSI oversold
+longC3 = volAvg > 0 and volume > volAvg * 1.5                   // Volume spike
+longC4 = body > 0 and absBody > 0 and lowerWick > absBody * 0.7 // Buying pressure
+longC5 = orValid and math.abs(low - orLow) < atrVal * 0.3       // Near OR low
+longC6 = sessPct < 0.3                                           // In lower 30%
+
+longScore = (longC1 ? 1 : 0) + (longC2 ? 1 : 0) + (longC3 ? 1 : 0) + 
+            (longC4 ? 1 : 0) + (longC5 ? 1 : 0) + (longC6 ? 1 : 0)
+
+// SHORT conditions
+shortC1 = vwapStd > 0 and (close - vwapCalc) / vwapStd > 1.5   // Above VWAP + 1.5σ
+shortC2 = rsiVal > 65                                            // RSI overbought
+shortC3 = volAvg > 0 and volume > volAvg * 1.5                   // Volume spike
+shortC4 = body < 0 and absBody > 0 and upperWick > absBody * 0.7 // Selling pressure
+shortC5 = orValid and math.abs(high - orHigh) < atrVal * 0.3     // Near OR high
+shortC6 = sessPct > 0.7                                           // In upper 30%
+
+shortScore = (shortC1 ? 1 : 0) + (shortC2 ? 1 : 0) + (shortC3 ? 1 : 0) + 
+             (shortC4 ? 1 : 0) + (shortC5 ? 1 : 0) + (shortC6 ? 1 : 0)
+
+// ── SIGNAL LOGIC ──
+longSignal  = longScore >= minScore and longScore > shortScore
+shortSignal = shortScore >= minScore and shortScore > longScore
+
+// ── COOLDOWN ──
+var int barsSinceExit = 100
+barsSinceExit += 1
+
+if strategy.closedtrades > 0
+    // Reset cooldown when a trade closes
+    if strategy.closedtrades != strategy.closedtrades[1]
+        barsSinceExit := 0
+
+canTrade = barsSinceExit > cooldownBars and isRTH and sessionBarCount > 15 and atrVal > 0.5
+
+// ── ENTRY ──
+if canTrade and strategy.position_size == 0
+    tpDist = atrVal * tpMult
+    slDist = atrVal * slMult
+    
+    if longSignal
+        strategy.entry("Long", strategy.long)
+        strategy.exit("Long TP/SL", "Long", 
+                       profit=tpDist / syminfo.mintick, 
+                       loss=slDist / syminfo.mintick)
+    
+    if shortSignal
+        strategy.entry("Short", strategy.short)
+        strategy.exit("Short TP/SL", "Short", 
+                       profit=tpDist / syminfo.mintick, 
+                       loss=slDist / syminfo.mintick)
+
+// ── END OF DAY EXIT ──
+if strategy.position_size != 0 and not isRTH
+    strategy.close_all("EOD")
+
+// ── MAX HOLD EXIT ──
+if strategy.position_size != 0
+    barsInTrade = bar_index - strategy.opentrades.entry_bar_index(0)
+    if barsInTrade >= maxHoldBars
+        strategy.close_all("Timeout")
+
+// ── PLOTS ──
+plot(vwapCalc, "VWAP", color=color.blue, linewidth=2)
+plot(vwapCalc + 1.5 * vwapStd, "VWAP+1.5σ", color=color.red, style=plot.style_line)
+plot(vwapCalc - 1.5 * vwapStd, "VWAP-1.5σ", color=color.green, style=plot.style_line)
+plot(orValid ? orHigh : na, "OR High", color=color.orange, style=plot.style_stepline)
+plot(orValid ? orLow : na, "OR Low", color=color.orange, style=plot.style_stepline)
+
+// Score labels for debugging
+bgcolor(longScore >= minScore ? color.new(color.green, 90) : 
+        shortScore >= minScore ? color.new(color.red, 90) : na)
+
+// ── TABLE: Live Stats ──
+var table statsTable = table.new(position.top_right, 2, 6, 
+     bgcolor=color.new(color.black, 80), border_width=1)
+
+if barstate.islast
+    table.cell(statsTable, 0, 0, "Confluence Score", text_color=color.white)
+    table.cell(statsTable, 1, 0, str.tostring(math.max(longScore, shortScore)), text_color=color.white)
+    table.cell(statsTable, 0, 1, "VWAP Z-Score", text_color=color.white)
+    zScore = vwapStd > 0 ? (close - vwapCalc) / vwapStd : 0
+    table.cell(statsTable, 1, 1, str.tostring(zScore, "#.##"), text_color=color.white)
+    table.cell(statsTable, 0, 2, "RSI", text_color=color.white)
+    table.cell(statsTable, 1, 2, str.tostring(rsiVal, "#.#"), text_color=color.white)
+    table.cell(statsTable, 0, 3, "Vol Ratio", text_color=color.white)
+    vr = volAvg > 0 ? volume / volAvg : 0
+    table.cell(statsTable, 1, 3, str.tostring(vr, "#.##"), text_color=color.white)
+    table.cell(statsTable, 0, 4, "Session %", text_color=color.white)
+    table.cell(statsTable, 1, 4, str.tostring(sessPct * 100, "#.#") + "%", text_color=color.white)
+    table.cell(statsTable, 0, 5, "ATR", text_color=color.white)
+    table.cell(statsTable, 1, 5, str.tostring(atrVal, "#.##"), text_color=color.white)
