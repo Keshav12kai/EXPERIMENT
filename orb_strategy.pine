@@ -1,0 +1,129 @@
+// ============================================================================
+//   5-MINUTE OPENING RANGE BREAKOUT (ORB) — TradingView Pine Script v6
+//   Academic basis: Crabel (1990), Fisher (2002)
+//   Matches orb_strategy.py EXACTLY — same entry/exit logic
+// ============================================================================
+//
+//   RULES:
+//   1. Compute OR = High/Low of first 5 bars after 9:30 ET
+//   2. Enter LONG on next bar if price breaks above OR High
+//   3. Enter SHORT on next bar if price breaks below OR Low
+//   4. Exit at session close (15:55 ET)
+//   5. Max 1 trade per day
+//   6. No stop loss — edge is in trend continuation
+//
+//   IMPORTANT: TradingView uses exchange timezone. For MNQ/NQ the chart
+//   timezone is US Eastern by default. Set chart timezone to US Eastern
+//   if needed: Chart Settings → Symbol → Exchange timezone.
+//
+//   CROSS-PLATFORM NOTE:
+//   This script enters on the CLOSE of the signal bar (which equals
+//   the open of the next bar in TradingView's strategy model).
+//   TradingView processes orders on bar close by default.
+//   Commission: $0.62/contract/side (set in strategy properties).
+// ============================================================================
+
+//@version=6
+strategy("ORB 5-Min Breakout",
+         overlay=true,
+         default_qty_type=strategy.fixed,
+         default_qty_value=1,
+         commission_type=strategy.commission.cash_per_contract,
+         commission_value=0.62,
+         slippage=1,
+         process_orders_on_close=false,
+         calc_on_every_tick=false)
+
+// ── INPUTS ──────────────────────────────────────────────────────────────────
+orMinutes     = input.int(5,   "Opening Range Minutes", minval=1, maxval=30)
+entryWindow   = input.int(30,  "Entry Window (min after OR)", minval=5, maxval=120)
+minOrRange    = input.float(3.0, "Min OR Range (pts)", minval=0.5, step=0.5)
+flattenHour   = input.int(15,  "Flatten Hour (ET)")
+flattenMinute = input.int(55,  "Flatten Minute (ET)")
+
+// ── SESSION DETECTION ───────────────────────────────────────────────────────
+// RTH session: 9:30 - 16:00 ET
+// Note: This assumes chart timezone is US Eastern (CME default for MNQ)
+isRTH = not na(time(timeframe.period, "0930-1600:23456", "America/New_York"))
+
+// Session start detection
+var bool wasRTH = false
+isSessionStart = isRTH and not wasRTH
+wasRTH := isRTH
+
+// ── OPENING RANGE TRACKING ─────────────────────────────────────────────────
+var float orHigh      = na
+var float orLow       = na
+var int   orBarCount  = 0
+var bool  orComplete  = false
+var bool  tradedToday = false
+
+// Reset at session start
+if isSessionStart
+    orHigh      := high
+    orLow       := low
+    orBarCount  := 1
+    orComplete  := false
+    tradedToday := false
+
+// Build OR during first orMinutes bars
+if isRTH and not isSessionStart and orBarCount < orMinutes and not orComplete
+    orHigh     := math.max(orHigh, high)
+    orLow      := math.min(orLow, low)
+    orBarCount += 1
+    if orBarCount >= orMinutes
+        orComplete := true
+
+// ── ENTRY LOGIC ─────────────────────────────────────────────────────────────
+// Only trade within entry window after OR completes
+canTrade = isRTH and orComplete and not tradedToday
+orRange = orHigh - orLow
+validOR = orRange >= minOrRange
+
+// Check if we're within entry window
+barsAfterOR = orBarCount > orMinutes ? orBarCount - orMinutes : 0
+inWindow = barsAfterOR <= entryWindow
+
+// Track bar count for window
+if isRTH and orComplete
+    orBarCount += 1
+
+// Entry signals
+longSignal  = canTrade and validOR and inWindow and high > orHigh
+shortSignal = canTrade and validOR and inWindow and low < orLow
+
+if longSignal and strategy.position_size == 0
+    strategy.entry("Long", strategy.long)
+    tradedToday := true
+
+if shortSignal and strategy.position_size == 0
+    strategy.entry("Short", strategy.short)
+    tradedToday := true
+
+// ── EXIT: Flatten at session end ────────────────────────────────────────────
+flattenTime = timestamp("America/New_York", year, month, dayofmonth, flattenHour, flattenMinute, 0)
+shouldFlatten = time >= flattenTime and isRTH
+
+if shouldFlatten and strategy.position_size != 0
+    strategy.close_all("Flatten")
+
+// Also close if session ends
+if not isRTH and strategy.position_size != 0
+    strategy.close_all("SessionEnd")
+
+// ── PLOTS ───────────────────────────────────────────────────────────────────
+plot(orComplete and isRTH ? orHigh : na, "OR High", color=color.new(color.green, 30),
+     style=plot.style_stepline, linewidth=2)
+plot(orComplete and isRTH ? orLow : na, "OR Low", color=color.new(color.red, 30),
+     style=plot.style_stepline, linewidth=2)
+
+// OR range fill
+p1 = plot(orComplete and isRTH ? orHigh : na, display=display.none)
+p2 = plot(orComplete and isRTH ? orLow : na, display=display.none)
+fill(p1, p2, color=color.new(color.blue, 90))
+
+// Entry markers
+plotshape(longSignal and strategy.position_size == 0, "Long Entry",
+          shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortSignal and strategy.position_size == 0, "Short Entry",
+          shape.triangledown, location.abovebar, color.red, size=size.small)
