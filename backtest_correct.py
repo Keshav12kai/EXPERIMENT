@@ -384,11 +384,11 @@ def main():
         sig_old = signals_ema3_slope(candles, closes)
         
         # Old strategy as originally coded (bar-close entry, TP=4/SL=5)
-        t_old_ideal = run_backtest(candles, sig_old, tp=4, sl=5, sh=15, eh=16)
+        t_old_ideal = run_backtest(candles, sig_old, tp=4, sl=5, sh=15, eh=16, min_vol=50)
         report(t_old_ideal, "OLD: EMA(3) Slope | TP=4/SL=5 | RTH Morning (IDEALIZED)", detail=detail)
         
         # Old strategy with realistic execution
-        t_old_real = run_backtest(candles, sig_old, tp=4, sl=5, sh=15, eh=16, min_vol=0)
+        t_old_real = run_backtest(candles, sig_old, tp=4, sl=5, sh=15, eh=16, min_vol=50)
         report(t_old_real, "OLD: EMA(3) Slope | TP=4/SL=5 | RTH Morning (REALISTIC)", detail=detail)
 
     # ── Final Summary ──

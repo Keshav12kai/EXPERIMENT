@@ -467,10 +467,10 @@ def get_all_strategies():
     
     # RSI strategies  
     for period in [7, 14]:
-        for ob, os_ in [(70, 30), (60, 40), (80, 20)]:
+        for ob, oversold in [(70, 30), (60, 40), (80, 20)]:
             strategies.append({
                 "name": f"RSI({period}) {ob}/{os_}",
-                "signal_fn": lambda c, cl, p=period, o=ob, s=os_: signal_rsi_extreme(c, cl, p, o, s),
+                "signal_fn": lambda c, cl, p=period, o=ob, s=oversold: signal_rsi_extreme(c, cl, p, o, s),
             })
     
     # Breakout strategies
