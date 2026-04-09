@@ -201,15 +201,17 @@ namespace NinjaTrader.NinjaScript.Strategies
 
             if (longSignal)
             {
-                SetProfitTarget("LongEntry", CalculationMode.Ticks, TpPts / TickSize);
-                SetStopLoss("LongEntry", CalculationMode.Ticks, SlPts / TickSize, false);
+                double tickSize = Instrument.MasterInstrument.TickSize;
+                SetProfitTarget("LongEntry", CalculationMode.Ticks, TpPts / tickSize);
+                SetStopLoss("LongEntry", CalculationMode.Ticks, SlPts / tickSize, false);
                 EnterLong(Qty, "LongEntry");
                 dailyTradeCount++;
             }
             else if (shortSignal)
             {
-                SetProfitTarget("ShortEntry", CalculationMode.Ticks, TpPts / TickSize);
-                SetStopLoss("ShortEntry", CalculationMode.Ticks, SlPts / TickSize, false);
+                double tickSize = Instrument.MasterInstrument.TickSize;
+                SetProfitTarget("ShortEntry", CalculationMode.Ticks, TpPts / tickSize);
+                SetStopLoss("ShortEntry", CalculationMode.Ticks, SlPts / tickSize, false);
                 EnterShort(Qty, "ShortEntry");
                 dailyTradeCount++;
             }

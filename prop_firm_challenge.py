@@ -189,7 +189,7 @@ ROLLOVER_SCHEDULE = {
     ("MNQM5", "MNQU5"): date(2025, 6, 16),
     ("MNQU5", "MNQZ5"): date(2025, 9, 15),
     ("MNQZ5", "MNQH6"): date(2025, 12, 15),
-    ("MNQH6", "MNQM6"): date(2025, 3, 16),  # Actually 2026
+    ("MNQH6", "MNQM6"): date(2026, 3, 16),
 }
 
 # Active front-month symbol by date range
@@ -359,10 +359,10 @@ def resolve_exit_ohlc_path(
             # Both hit — use OHLC path to determine which first
             bullish = bar_close >= bar_open
             if bullish:
-                # Path: O → L → H → C → SL first
+                # Path: O → L → H → C → Low is visited first, so SL hit first
                 return ("sl", sl_price)
             else:
-                # Path: O → H → L → C → TP first
+                # Path: O → H → L → C → High is visited first, so TP hit first
                 return ("tp", tp_price)
         elif tp_hit:
             return ("tp", tp_price)
@@ -377,10 +377,10 @@ def resolve_exit_ohlc_path(
         if tp_hit and sl_hit:
             bullish = bar_close >= bar_open
             if bullish:
-                # Path: O → L → H → C → TP first (short TP at low)
+                # Path: O → L → H → C → Low visited first, so TP hit first (short TP at low)
                 return ("tp", tp_price)
             else:
-                # Path: O → H → L → C → SL first (short SL at high)
+                # Path: O → H → L → C → High visited first, so SL hit first (short SL at high)
                 return ("sl", sl_price)
         elif tp_hit:
             return ("tp", tp_price)
